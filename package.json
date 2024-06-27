@@ -1,0 +1,17 @@
+{
+  "name": "jstorage-react",
+  "version": "0.3.1",
+  "description": "A TypeScript library for storage in React applications.",
+  "main": "dist/jStorageReact.js",
+  "types": "dist/jStorageReact.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [],
+  "author": "Ujjwal Paul",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^4.9.5"
+  }
+}
