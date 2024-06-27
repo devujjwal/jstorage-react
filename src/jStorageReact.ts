@@ -13,7 +13,7 @@ class JStorageReact {
   crc32Table: number[];
 
   constructor() {
-    this.version = "0.3.1";
+    this.version = "1.0.0";
     this.storage = this.isBrowser() ? window.localStorage : null;
     this.jStorage = this.storage ? this.getStoredJStorage() : {};
     this.jStorageMeta = this.jStorage.__jstorage_meta || { CRC32: {}, TTL: {} };
