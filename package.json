@@ -1,6 +1,6 @@
 {
   "name": "jstorage-react",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A TypeScript library for storage in React applications.",
   "main": "dist/jStorageReact.js",
   "types": "dist/jStorageReact.d.ts",
