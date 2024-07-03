@@ -1,10 +1,11 @@
 interface JStorageMeta {
   CRC32: { [key: string]: number };
   TTL: { [key: string]: number };
+  PubSub?: any[];
 }
 
 class JStorageReact {
-  version: string = "1.0.0";
+  version: string = "1.0.2";
   storage: Storage | null = this.isBrowser() ? window.localStorage : null;
   jStorage: { [key: string]: any } = this.getStoredJStorage();
   jStorageMeta: JStorageMeta = this.jStorage.__jstorage_meta || {
@@ -19,6 +20,8 @@ class JStorageReact {
     value?: any;
     options?: { TTL?: number };
   }[] = [];
+  listeners: { [key: string]: Function[] } = {};
+  subscriptions: { [key: string]: Function[] } = {};
 
   constructor() {
     this.init();
@@ -42,7 +45,11 @@ class JStorageReact {
 
   private init() {
     if (this.storage) {
-      this.jStorage.__jstorage_meta = this.jStorageMeta;
+      if (!this.jStorage.__jstorage_meta) {
+        this.jStorage.__jstorage_meta = { CRC32: {}, TTL: {} };
+      }
+      this.jStorage.__jstorage_meta.CRC32 = this.jStorageMeta.CRC32;
+      this.jStorage.__jstorage_meta.TTL = this.jStorageMeta.TTL;
       this.save();
       this.cleanupTTL();
     }
@@ -259,6 +266,62 @@ class JStorageReact {
     }
     this.jStorage = { __jstorage_meta: { CRC32: {}, TTL: {} } };
     this.save();
+  }
+
+  storageObj(): { [key: string]: any } {
+    return JSON.parse(JSON.stringify(this.jStorage));
+  }
+
+  index(): string[] {
+    return Object.keys(this.jStorage).filter(
+      (key) => key !== "__jstorage_meta"
+    );
+  }
+
+  currentBackend(): string | null {
+    return this.storage ? "localStorage" : null;
+  }
+
+  listenKeyChange(key: string, callback: Function): void {
+    if (!this.listeners[key]) {
+      this.listeners[key] = [];
+    }
+    this.listeners[key].push(callback);
+  }
+
+  stopListening(key: string, callback: Function): void {
+    if (this.listeners[key]) {
+      this.listeners[key] = this.listeners[key].filter((cb) => cb !== callback);
+    }
+  }
+
+  subscribe(channel: string, callback: Function): void {
+    if (!this.subscriptions[channel]) {
+      this.subscriptions[channel] = [];
+    }
+    this.subscriptions[channel].push(callback);
+  }
+
+  publish(channel: string, payload: any): void {
+    if (!this.jStorageMeta.PubSub) {
+      this.jStorageMeta.PubSub = [];
+    }
+    this.jStorageMeta.PubSub.push([Date.now(), channel, payload]);
+    this.save();
+    this.notifySubscribers(channel, payload);
+  }
+
+  reInit(): void {
+    this.jStorage = this.getStoredJStorage();
+    this.jStorageMeta = this.jStorage.__jstorage_meta || { CRC32: {}, TTL: {} };
+  }
+
+  private notifySubscribers(channel: string, payload: any): void {
+    if (this.subscriptions[channel]) {
+      this.subscriptions[channel].forEach((callback) =>
+        callback(channel, payload)
+      );
+    }
   }
 }
 
