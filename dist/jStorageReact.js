@@ -1,13 +1,19 @@
 "use strict";
-// jStorageReact.ts
 Object.defineProperty(exports, "__esModule", { value: true });
 class JStorageReact {
     constructor() {
-        this.version = "1.0.0";
+        this.version = "1.0.2";
         this.storage = this.isBrowser() ? window.localStorage : null;
-        this.jStorage = this.storage ? this.getStoredJStorage() : {};
-        this.jStorageMeta = this.jStorage.__jstorage_meta || { CRC32: {}, TTL: {} };
+        this.jStorage = this.getStoredJStorage();
+        this.jStorageMeta = this.jStorage.__jstorage_meta || {
+            CRC32: {},
+            TTL: {},
+        };
         this.crc32Table = [];
+        this.batchChanges = false;
+        this.batchQueue = [];
+        this.listeners = {};
+        this.subscriptions = {};
         this.init();
     }
     isBrowser() {
@@ -28,24 +34,59 @@ class JStorageReact {
     }
     init() {
         if (this.storage) {
-            this.jStorage.__jstorage_meta = this.jStorageMeta;
+            if (!this.jStorage.__jstorage_meta) {
+                this.jStorage.__jstorage_meta = { CRC32: {}, TTL: {} };
+            }
+            this.jStorage.__jstorage_meta.CRC32 = this.jStorageMeta.CRC32;
+            this.jStorage.__jstorage_meta.TTL = this.jStorageMeta.TTL;
             this.save();
             this.cleanupTTL();
         }
     }
     save() {
-        if (this.storage) {
-            try {
-                this.storage.setItem("jStorage", JSON.stringify(this.jStorage));
-            }
-            catch (error) {
-                console.error("Error saving jStorage data:", error);
-            }
+        if (!this.storage) {
+            console.warn("Cannot save jStorage: localStorage is not available.");
+            return;
         }
+        try {
+            this.storage.setItem("jStorage", JSON.stringify(this.jStorage));
+        }
+        catch (error) {
+            console.error("Error saving jStorage data:", error);
+        }
+    }
+    processBatchQueue() {
+        this.batchQueue.forEach((item) => {
+            var _a;
+            switch (item.type) {
+                case "set":
+                    this.set(item.key, item.value, item.options);
+                    break;
+                case "delete":
+                    this.deleteKey(item.key);
+                    break;
+                case "setTTL":
+                    this.setTTL(item.key, ((_a = item.options) === null || _a === void 0 ? void 0 : _a.TTL) || 0);
+                    break;
+            }
+        });
+        this.batchQueue = [];
+        this.save();
+    }
+    startBatch() {
+        this.batchChanges = true;
+    }
+    endBatch() {
+        this.batchChanges = false;
+        this.processBatchQueue();
     }
     set(key, value, options = {}) {
         if (!this.storage) {
             console.warn("Cannot set jStorage value: localStorage is not available.");
+            return;
+        }
+        if (this.batchChanges) {
+            this.batchQueue.push({ type: "set", key, value, options });
             return;
         }
         if (typeof value === "undefined") {
@@ -65,7 +106,9 @@ class JStorageReact {
         this.jStorage[key] = value;
         this.jStorageMeta.CRC32[key] = this.crc32(JSON.stringify(value));
         this.setTTL(key, options.TTL || 0);
-        this.save();
+        if (!this.batchChanges) {
+            this.save();
+        }
     }
     get(key, defaultValue = null) {
         if (!this.storage) {
@@ -82,14 +125,24 @@ class JStorageReact {
             console.warn("Cannot delete jStorage key: localStorage is not available.");
             return;
         }
+        if (this.batchChanges) {
+            this.batchQueue.push({ type: "delete", key });
+            return;
+        }
         delete this.jStorage[key];
         delete this.jStorageMeta.TTL[key];
         delete this.jStorageMeta.CRC32[key];
-        this.save();
+        if (!this.batchChanges) {
+            this.save();
+        }
     }
     setTTL(key, ttl) {
         if (!this.storage) {
             console.warn("Cannot set TTL for jStorage key: localStorage is not available.");
+            return;
+        }
+        if (this.batchChanges) {
+            this.batchQueue.push({ type: "setTTL", key, options: { TTL: ttl } });
             return;
         }
         if (!ttl) {
@@ -99,7 +152,9 @@ class JStorageReact {
             this.jStorageMeta.TTL[key] = Date.now() + ttl;
         }
         this.cleanupTTL();
-        this.save();
+        if (!this.batchChanges) {
+            this.save();
+        }
     }
     getTTL(key) {
         if (!this.storage) {
@@ -176,6 +231,49 @@ class JStorageReact {
         }
         this.jStorage = { __jstorage_meta: { CRC32: {}, TTL: {} } };
         this.save();
+    }
+    storageObj() {
+        return JSON.parse(JSON.stringify(this.jStorage));
+    }
+    index() {
+        return Object.keys(this.jStorage).filter((key) => key !== "__jstorage_meta");
+    }
+    currentBackend() {
+        return this.storage ? "localStorage" : null;
+    }
+    listenKeyChange(key, callback) {
+        if (!this.listeners[key]) {
+            this.listeners[key] = [];
+        }
+        this.listeners[key].push(callback);
+    }
+    stopListening(key, callback) {
+        if (this.listeners[key]) {
+            this.listeners[key] = this.listeners[key].filter((cb) => cb !== callback);
+        }
+    }
+    subscribe(channel, callback) {
+        if (!this.subscriptions[channel]) {
+            this.subscriptions[channel] = [];
+        }
+        this.subscriptions[channel].push(callback);
+    }
+    publish(channel, payload) {
+        if (!this.jStorageMeta.PubSub) {
+            this.jStorageMeta.PubSub = [];
+        }
+        this.jStorageMeta.PubSub.push([Date.now(), channel, payload]);
+        this.save();
+        this.notifySubscribers(channel, payload);
+    }
+    reInit() {
+        this.jStorage = this.getStoredJStorage();
+        this.jStorageMeta = this.jStorage.__jstorage_meta || { CRC32: {}, TTL: {} };
+    }
+    notifySubscribers(channel, payload) {
+        if (this.subscriptions[channel]) {
+            this.subscriptions[channel].forEach((callback) => callback(channel, payload));
+        }
     }
 }
 // Export as default only if in a browser environment

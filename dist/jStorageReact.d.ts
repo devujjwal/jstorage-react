@@ -5,6 +5,7 @@ interface JStorageMeta {
     TTL: {
         [key: string]: number;
     };
+    PubSub?: any[];
 }
 declare class JStorageReact {
     version: string;
@@ -14,11 +15,29 @@ declare class JStorageReact {
     };
     jStorageMeta: JStorageMeta;
     crc32Table: number[];
+    batchChanges: boolean;
+    batchQueue: {
+        type: string;
+        key: string;
+        value?: any;
+        options?: {
+            TTL?: number;
+        };
+    }[];
+    listeners: {
+        [key: string]: Function[];
+    };
+    subscriptions: {
+        [key: string]: Function[];
+    };
     constructor();
     private isBrowser;
     private getStoredJStorage;
     private init;
     private save;
+    private processBatchQueue;
+    startBatch(): void;
+    endBatch(): void;
     set(key: string, value: any, options?: {
         TTL?: number;
     }): void;
@@ -35,6 +54,17 @@ declare class JStorageReact {
     storageSize(): number;
     storageAvailable(): boolean;
     flush(): void;
+    storageObj(): {
+        [key: string]: any;
+    };
+    index(): string[];
+    currentBackend(): string | null;
+    listenKeyChange(key: string, callback: Function): void;
+    stopListening(key: string, callback: Function): void;
+    subscribe(channel: string, callback: Function): void;
+    publish(channel: string, payload: any): void;
+    reInit(): void;
+    private notifySubscribers;
 }
 declare const jStorageReact: JStorageReact;
 export default jStorageReact;
